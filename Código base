@@ -1,0 +1,431 @@
+"""
+Punto de entrada del Sistema Integral de Gestión de Clientes, Servicios y
+Reservas de Software FJ.
+
+El programa simula **28 operaciones completas** (válidas e inválidas) para
+demostrar que la aplicación sigue funcionando incluso ante errores graves:
+cada operación se ejecuta dentro de un bloque ``try/except/else/finally`` y,
+si falla, el error se registra en la bitácora y la ejecución continúa con la
+operación siguiente.
+
+Uso::
+
+    python main.py
+
+Autor: Camilo Ortega
+Grupo 213023 - Fase 4
+"""
+
+from __future__ import annotations
+
+from datetime import date, time, timedelta
+from pathlib import Path
+from typing import Any, Callable
+
+from sistema_fj import Registro, SistemaFJ
+from sistema_fj.excepciones import ErrorSistemaFJ
+
+ANCHO = 78
+RUTA_LOG = Path(__file__).resolve().parent / "logs" / "sistema_fj.log"
+
+
+# ---------------------------------------------------------------------------
+# Utilidades de presentación
+# ---------------------------------------------------------------------------
+def linea(caracter: str = "-", ancho: int = ANCHO) -> None:
+    """Imprime una línea decorativa."""
+    print(caracter * ancho)
+
+
+def encabezado(texto: str) -> None:
+    """Imprime un título principal enmarcado."""
+    print()
+    linea("=")
+    print(texto.center(ANCHO))
+    linea("=")
+
+
+def seccion(texto: str) -> None:
+    """Imprime un subtítulo de sección."""
+    print()
+    print(f"### {texto}")
+    linea("-")
+
+
+def formatear_moneda(valor: float) -> str:
+    """Formatea un valor en pesos colombianos."""
+    return f"${valor:,.2f} COP"
+
+
+# ---------------------------------------------------------------------------
+# Demostración
+# ---------------------------------------------------------------------------
+class Demostracion:
+    """Ejecuta el guion de pruebas del sistema, operación por operación."""
+
+    def __init__(self) -> None:
+        self.sistema = SistemaFJ(Registro(RUTA_LOG))
+        self.paso = 0
+        self.exitos = 0
+        self.rechazos = 0
+        self.hoy = date.today()
+        self.fecha_futura = self.hoy + timedelta(days=5)
+
+    # ------------------------------------------------------------------
+    # Ejecutor genérico: try/except/else/finally por operació
+    # ------------------------------------------------------------------
+    def operacion(
+        self,
+        descripcion: str,
+        accion: Callable[[], Any],
+        codigo_esperado: str | None = None,
+    ) -> Any:
+        """Ejecuta una operación y captura los errores de dominio.
+
+        Parameters
+        ----------
+        descripcion:
+            Texto explicativo que se muestra en consola.
+        accion:
+            Función sin argumentos que ejecuta la operación.
+        codigo_esperado:
+            Código de error que se considera un *rechazo controlado* (el
+            sistema hizo bien en impedir la operación). Si se omite, se espera
+            que la operación sea exitosa.
+        """
+        self.paso += 1
+        print(f"\n[{self.paso:02d}] {descripcion}")
+        try:
+            resultado = accion()
+        except ErrorSistemaFJ as error:
+            # --- Error de negocio controlado: el programa NO se detiene ---
+            if codigo_esperado and codigo_esperado in error.codigo:
+                self.rechazos += 1
+                print(f"     [RECHAZADO] {error}")
+                print("     [OK] El sistema continúa funcionando tras el error.")
+            else:
+                print(f"     [ERROR NO ESPERADO] {error}")
+            return None
+        except Exception as error:  # noqa: BLE001 - red de seguridad del demo
+            # --- Error no previsto: se informa pero se conserva la estabilidad ---
+            print(f"     [ERROR CRÍTICO] {type(error).__name__}: {error}")
+            return None
+        else:
+            # --- Camino feliz: solo llega aquí si no hubo excepción ---
+            self.exitos += 1
+            print(f"     [OK] {resultado}")
+            return resultado
+        finally:
+            # Se ejecute bien o mal, la operación queda cerrada.
+            pass
+
+    # ------------------------------------------------------------------
+    # Guion completo
+    # ------------------------------------------------------------------
+    def ejecutar(self) -> None:
+        encabezado("SOFTWARE FJ - SISTEMA INTEGRAL DE CLIENTES, SERVICIOS Y RESERVAS")
+        print(f"Fecha de ejecución: {self.hoy.isoformat()}")
+        print(f"Bitácora de eventos: {RUTA_LOG.name}")
+
+        self._bloque_clientes()
+        self._bloque_servicios()
+        self._bloque_reservas()
+        self._bloque_polimorfismo()
+        self._resumen_final()
+
+    # ..................................................................
+    def _bloque_clientes(self) -> None:
+        seccion("BLOQUE 1: gestión de clientes")
+        sistema = self.sistema
+
+        self.operacion(
+            "Registro de cliente válido: Ana María Torres",
+            lambda: sistema.registrar_cliente(
+                "Ana Maria Torres", "1023456789", "ana.torres@correo.com", "3105557788"
+            ).describir(),
+        )
+        self.operacion(
+            "Registro de cliente válido: Carlos Pérez (con espacios y mayúsculas)",
+            lambda: sistema.registrar_cliente(
+                "  carlos   pérez  ", "79.456.123", "Carlos.Perez@Correo.COM", "+57 300 123 4567"
+            ).describir(),
+        )
+        self.operacion(
+            "Registro inválido: documento con letras",
+            lambda: sistema.registrar_cliente(
+                "Pedro Gómez", "12AB34", "pedro@correo.com", "3001112233"
+            ),
+            codigo_esperado="FJ-102",
+        )
+        self.operacion(
+            "Registro inválido: correo sin dominio válido",
+            lambda: sistema.registrar_cliente(
+                "Luisa Ramírez", "1098765432", "luisa.correo.com", "3012223344"
+            ),
+            codigo_esperado="FJ-103",
+        )
+        self.operacion(
+            "Registro inválido: documento ya existente (duplicado)",
+            lambda: sistema.registrar_cliente(
+                "Ana Torres Duplicada", "1023456789", "otra@correo.com", "3105557788"
+            ),
+            codigo_esperado="FJ-105",
+        )
+
+    # ..................................................................
+    def _bloque_servicios(self) -> None:
+        seccion("BLOQUE 2: creación del catálogo de servicios")
+        sistema = self.sistema
+
+        self.operacion(
+            "Servicio válido: sala de juntas (capacidad 12)",
+            lambda: sistema.crear_servicio(
+                "sala",
+                nombre="Sala Andina",
+                tarifa_base=45_000,
+                capacidad=12,
+                ubicacion="Bloque B, piso 3",
+            ).describir(),
+        )
+        self.operacion(
+            "Servicio válido: alquiler de portátiles con operador",
+            lambda: sistema.crear_servicio(
+                "equipo",
+                nombre="Portátil Dell Latitude",
+                tarifa_base=28_000,
+                tipo_equipo="portatil",
+                requiere_operador=True,
+            ).describir(),
+        )
+        self.operacion(
+            "Servicio válido: asesoría senior en seguridad informática",
+            lambda: sistema.crear_servicio(
+                "asesoria",
+                nombre="Asesoría en ciberseguridad",
+                tarifa_base=80_000,
+                area="seguridad",
+                nivel="senior",
+            ).describir(),
+        )
+        self.operacion(
+            "Servicio inválido: sala con capacidad 0",
+            lambda: sistema.crear_servicio(
+                "sala", nombre="Sala vacía", tarifa_base=30_000, capacidad=0
+            ),
+            codigo_esperado="FJ-201",
+        )
+        self.operacion(
+            "Servicio inválido: asesoría con nivel inexistente",
+            lambda: sistema.crear_servicio(
+                "asesoria",
+                nombre="Asesoría en redes",
+                tarifa_base=60_000,
+                area="datos",
+                nivel="maestro",
+            ),
+            codigo_esperado="FJ-201",
+        )
+        self.operacion(
+            "Servicio inválido: tipo de servicio desconocido",
+            lambda: sistema.crear_servicio("drone", nombre="Dron", tarifa_base=1_000),
+            codigo_esperado="FJ-204",
+        )
+
+    # ..................................................................
+    def _bloque_reservas(self) -> None:
+        seccion("BLOQUE 3: ciclo de vida de las reservas")
+        sistema = self.sistema
+        sala = sistema.servicios[0]
+        equipo = sistema.servicios[1]
+        asesoria = sistema.servicios[2]
+
+        reserva_valida = self.operacion(
+            "Reserva válida: sala Andina, 3 horas",
+            lambda: sistema.crear_reserva(
+                "1023456789", sala.id, 3, self.fecha_futura, time(9, 0)
+            ).describir(),
+        )
+        self.operacion(
+            "Reserva inválida: cliente no registrado",
+            lambda: sistema.crear_reserva(
+                "999999", sala.id, 2, self.fecha_futura, time(9, 0)
+            ),
+            codigo_esperado="FJ-106",
+        )
+        self.operacion(
+            "Reserva inválida: duración de 0 horas",
+            lambda: sistema.crear_reserva(
+                "1023456789", sala.id, 0, self.fecha_futura, time(14, 0)
+            ),
+            codigo_esperado="FJ-301",
+        )
+        self.operacion(
+            "Reserva inválida: duración de 15 horas (excede el máximo de la sala)",
+            lambda: sistema.crear_reserva(
+                "1023456789", sala.id, 15, self.fecha_futura, time(8, 0)
+            ),
+            codigo_esperado="FJ-301",
+        )
+        self.operacion(
+            "Reserva inválida: franja solapada (10:00-12:00 con 09:00-12:00 ocupada)",
+            lambda: sistema.crear_reserva(
+                "79456123", sala.id, 2, self.fecha_futura, time(10, 0)
+            ),
+            codigo_esperado="FJ-304",
+        )
+        self.operacion(
+            "Reserva inválida: fecha en el pasado",
+            lambda: sistema.crear_reserva(
+                "1023456789", sala.id, 2, self.hoy - timedelta(days=1), time(10, 0)
+            ),
+            codigo_esperado="FJ-302",
+        )
+        self.operacion(
+            "Reserva inválida: 21:00 + 3 h supera el horario de atención",
+            lambda: sistema.crear_reserva(
+                "1023456789", sala.id, 3, self.fecha_futura, time(21, 0)
+            ),
+            codigo_esperado="FJ-303",
+        )
+        # --- Suspensión temporal del servicio: la reserva debe ser rechazada ---
+        sistema.desactivar_servicio(equipo.id, "Mantenimiento preventivo")
+        self.operacion(
+            "Reserva inválida: servicio suspendido por mantenimiento",
+            lambda: sistema.crear_reserva(
+                "79456123", equipo.id, 2, self.fecha_futura, time(14, 0)
+            ),
+            codigo_esperado="FJ-202",
+        )
+        sistema.reactivar_servicio(equipo.id)
+
+        # --- Desactivación temporal del cliente: la reserva debe ser rechazada ---
+        sistema.desactivar_cliente("79456123")
+        self.operacion(
+            "Reserva inválida: cliente inactivo",
+            lambda: sistema.crear_reserva(
+                "79456123", asesoria.id, 2, self.fecha_futura, time(15, 0)
+            ),
+            codigo_esperado="FJ-107",
+        )
+        sistema.reactivar_cliente("79456123")
+
+        # --- Confirmación y facturación ---
+        codigo = reserva_valida.split(" ")[1] if reserva_valida else "RSV-0001"
+        self.operacion(
+            "Confirmación de la reserva creada",
+            lambda: sistema.confirmar_reserva(codigo),
+        )
+        self.operacion(
+            "Procesamiento con sobrecarga (3 argumentos: 3 h, IVA 19%, descuento 10%)",
+            lambda: formatear_moneda(sistema.procesar_reserva(codigo, 0.19, 0.10)),
+        )
+        self.operacion(
+            "Procesamiento repetido: la reserva ya fue facturada",
+            lambda: sistema.procesar_reserva(codigo),
+            codigo_esperado="FJ-305",
+        )
+        self.operacion(
+            "Cancelación de una reserva ya procesada (operación no permitida)",
+            lambda: sistema.cancelar_reserva(codigo, "Cliente cambió de opinión"),
+            codigo_esperado="FJ-307",
+        )
+
+        # --- Flujo alterno: reservar y cancelar ---
+        reserva_asesoria = self.operacion(
+            "Reserva válida de asesoría (2 h) para un cliente activo",
+            lambda: sistema.crear_reserva(
+                "79456123", asesoria.id, 2, self.fecha_futura, time(16, 0)
+            ).describir(),
+        )
+        if reserva_asesoria:
+            codigo_asesoria = reserva_asesoria.split(" ")[1]
+            self.operacion(
+                "Confirmación y cancelación controlada de la reserva de asesoría",
+                lambda: (
+                    sistema.confirmar_reserva(codigo_asesoria),
+                    sistema.cancelar_reserva(codigo_asesoria, "Reprogramación solicitada"),
+                )[1],
+            )
+
+    # ..................................................................
+    def _bloque_polimorfismo(self) -> None:
+        seccion("BLOQUE 4: polimorfismo y sobrecarga en el cálculo de costos")
+        print("Cada servicio calcula su propio costo (misma llamada, resultados distintos):")
+        print(f"  {'SERVICIO':<34}{'TIPO':<10}{'1 HORA':>16}{'4 H + IVA':>18}")
+        linea("-")
+        for servicio in self.sistema.servicios:
+            simple = servicio.calcular_costo(1)
+            con_iva = servicio.calcular_costo(4, 0.19)
+            print(
+                f"  {servicio.nombre[:32]:<34}{servicio.codigo_tipo:<10}"
+                f"{'$' + format(simple, ',.0f'):>16}{'$' + format(con_iva, ',.0f'):>18}"
+            )
+
+        print("\nSobrecarga simulada sobre la asesoría (4 horas):")
+        asesoria = self.sistema.servicios[2]
+        variantes = {
+            "calcular_costo(4)": asesoria.calcular_costo(4),
+            "calcular_costo(4, 0.19)": asesoria.calcular_costo(4, 0.19),
+            "calcular_costo(4, 0.19, 0.10)": asesoria.calcular_costo(4, 0.19, 0.10),
+            "calcular_costo(horas=4, descuento=0.10)": asesoria.calcular_costo(
+                horas=4, descuento=0.10
+            ),
+        }
+        for expresion, valor in variantes.items():
+            print(f"  {expresion:<44} = {formatear_moneda(valor):>18}")
+
+        self.operacion(
+            "Sobrecarga con parámetro duplicado (error controlado)",
+            lambda: asesoria.calcular_costo(4, horas=5),
+            codigo_esperado="FJ-400",
+        )
+        self.operacion(
+            "Sobrecarga con impuesto fuera de rango (80%)",
+            lambda: asesoria.calcular_costo(4, 0.80),
+            codigo_esperado="FJ-400",
+        )
+
+    # ..................................................................
+    def _resumen_final(self) -> None:
+        seccion("BLOQUE 5: resumen de la ejecución")
+        resumen = self.sistema.resumen()
+        print(f"  Operaciones ejecutadas .......... {self.paso}")
+        print(f"  Operaciones exitosas ............ {self.exitos}")
+        print(f"  Rechazos controlados ............ {self.rechazos}")
+        print(f"  Clientes registrados ............ {resumen['clientes']}")
+        print(f"  Servicios en catálogo ........... {resumen['servicios']}")
+        print(f"  Reservas registradas ............ {resumen['reservas']}")
+        for estado, cantidad in resumen["reservas_por_estado"].items():
+            print(f"     - {estado:<12} ............... {cantidad}")
+        print(f"  Total facturado ................. {formatear_moneda(resumen['total_facturado'])}")
+        print(f"  Eventos en bitácora ............. {resumen['eventos_log']}")
+
+        print("\n  Últimas líneas del archivo de logs:")
+        for linea_log in self.sistema.registro.ultimas_lineas(6):
+            print(f"    {linea_log}")
+
+        self.sistema.cerrar()
+        linea("=")
+        print("EJECUCIÓN FINALIZADA: el sistema se mantuvo estable ante todos los errores.")
+        linea("=")
+
+
+# ---------------------------------------------------------------------------
+# Arranque
+# ---------------------------------------------------------------------------
+def main() -> int:
+    """Inicia la demostración y garantiza una salida controlada."""
+    try:
+        Demostracion().ejecutar()
+    except ErrorSistemaFJ as error:
+        # Último recurso: un error de dominio no controlado no debe mostrar traceback.
+        print(f"\nEl sistema se detuvo de forma controlada: {error}")
+        return 1
+    except KeyboardInterrupt:
+        print("\nEjecución interrumpida por el usuario.")
+        return 130
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
